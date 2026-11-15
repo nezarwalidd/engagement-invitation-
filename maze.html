@@ -1,0 +1,459 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>Find the Ring</title>
+<link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg-dark:#121d12; --bg-mid:#1a2a1a; --bg-glow:#34472f;
+  --cream:#f1e6d0; --leaf:#8aa57a; --leaf-dark:#3f5a3a; --leaf-deep:#1f3d24;
+}
+html,body{margin:0;height:100%;overflow:hidden;overscroll-behavior:none}
+body{
+  background:radial-gradient(circle at 25% 20%, var(--bg-glow) 0%, var(--bg-mid) 55%, var(--bg-dark) 100%) fixed;
+  color:var(--cream);
+  font-family:"Press Start 2P",ui-monospace,Menlo,Consolas,monospace;
+  display:flex;flex-direction:column;align-items:center;justify-content:center;
+  gap:12px;padding:8px;box-sizing:border-box;
+  user-select:none;-webkit-user-select:none;-webkit-touch-callout:none;
+}
+h1{font-size:clamp(11px,3.2vw,16px);margin:0;text-shadow:3px 3px 0 #000;letter-spacing:1px;text-align:center}
+#hint{font-size:9px;color:var(--leaf);line-height:1.6;text-align:center;margin:0}
+canvas{border:4px solid var(--cream);box-shadow:6px 6px 0 #000;touch-action:none;display:block;background:#000}
+
+#pad{display:none;grid-template-columns:repeat(3,60px);grid-template-rows:repeat(2,60px);gap:6px}
+@media (pointer:coarse){#pad{display:grid}}
+.pbtn{
+  display:grid;place-items:center;padding:0;cursor:pointer;
+  background:var(--leaf-dark);border:4px solid var(--leaf);box-shadow:4px 4px 0 #000;
+  touch-action:none;
+}
+.pbtn:active{transform:translate(3px,3px);box-shadow:1px 1px 0 #000;background:#52734b}
+.pbtn::before{content:"";width:0;height:0;border:solid transparent}
+.up{grid-column:2;grid-row:1}.left{grid-column:1;grid-row:2}
+.down{grid-column:2;grid-row:2}.right{grid-column:3;grid-row:2}
+.up::before{border-width:0 12px 18px;border-bottom-color:var(--cream)}
+.down::before{border-width:18px 12px 0;border-top-color:var(--cream)}
+.left::before{border-width:12px 18px 12px 0;border-right-color:var(--cream)}
+.right::before{border-width:12px 0 12px 18px;border-left-color:var(--cream)}
+
+#win{position:fixed;inset:0;display:none;align-items:center;justify-content:center;background:rgba(10,20,10,.82);z-index:10;padding:16px}
+.panel{background:var(--leaf-dark);border:4px solid var(--cream);padding:24px 20px;max-width:300px;text-align:center;box-shadow:6px 6px 0 #000}
+.panel h2{font-size:14px;line-height:1.7;margin:0 0 14px;color:var(--cream);text-shadow:2px 2px 0 #000}
+.panel p{font-size:9px;line-height:1.8;color:var(--leaf);margin:0 0 18px;min-height:16px}
+#next{font:inherit;font-size:12px;padding:14px 18px;border:4px solid #000;background:var(--cream);color:var(--leaf-deep);cursor:pointer;box-shadow:4px 4px 0 #000}
+#next:active{transform:translate(3px,3px);box-shadow:1px 1px 0 #000}
+</style>
+</head>
+<body>
+<h1>FIND THE RING</h1>
+<canvas id="cv"></canvas>
+<p id="hint"></p>
+
+<div id="pad">
+  <button class="pbtn up" data-d="up" aria-label="Up"></button>
+  <button class="pbtn left" data-d="left" aria-label="Left"></button>
+  <button class="pbtn down" data-d="down" aria-label="Down"></button>
+  <button class="pbtn right" data-d="right" aria-label="Right"></button>
+</div>
+
+<div id="win">
+  <div class="panel">
+    <h2>YOU FOUND<br>THE RING</h2>
+    <p id="winmsg"></p>
+    <button id="next" type="button">CONTINUE</button>
+  </div>
+</div>
+
+<script>
+/* Set this when the next page exists, for example 'envelope.html' */
+const NEXT_PAGE = 'envelope.html';
+
+/* Maze size in cells. Bigger numbers = harder maze. */
+const CW = 9, CH = 13;
+
+/* ---------- Which character ---------- */
+let who = new URLSearchParams(location.search).get('c');
+if (who !== 'groom' && who !== 'bride') {
+  try { who = sessionStorage.getItem('character'); } catch (e) {}
+}
+if (who !== 'bride') who = 'groom';
+
+/* ---------- Sprites ---------- */
+function make(rows, pal) {
+  const c = document.createElement('canvas');
+  c.width = rows[0].length; c.height = rows.length;
+  const x = c.getContext('2d');
+  rows.forEach((r, j) => [...r].forEach((ch, i) => {
+    if (ch === '.') return;
+    x.fillStyle = pal[ch] || '#f0f';
+    x.fillRect(i, j, 1, 1);
+  }));
+  return c;
+}
+const PEOPLE = { k:'#1a1a2e', s:'#f5c9a0', w:'#ffffff', g:'#2b3a67', r:'#e63946', h:'#4a2c17', y:'#e8b04a', p:'#ff8fb1', l:'#dfe6ff' };
+const BALLOON = [".kkkkk.","krrrrrk","krwrrrk","krwrrrk","krrrrrk",".krrrk.","..kkk..","...k...","....k..","...k..."];
+const SPR = {
+  groom: make([
+"...kkkkkk...","..khhhhhhk..","..khhhhhhk..","..kssssssk..","..kskssksk..","..kssssssk..",
+"....kssk....","..kkwrrwkk..",".kgggwwgggk.",".kgggwwgggk.",".sgggwwgggs.",".kgggwwgggk.",
+"..kggggggk..","..kggkkggk..","..kggkkggk..","..kkkkkkkk.."], PEOPLE),
+  bride: make([
+"...kkkkkk...",".kyyyyyyyyk.",".kyyyyyyyyk.",".kyssssssyk.",".kyskssksyk.",".kyssppssyk.",
+"..yykssk.yy.","..ykwwwwkyy.",".skwwwwwwks.","..kwwwwwwk..",".kwwlwwlwwk.","kwwwwwwwwwwk",
+"kwwlwwwwlwwk","kwwwwwwwwwwk","kkkkkkkkkkkk","...kk..kk..."], PEOPLE),
+  cake: make([
+"....y.....","....r.....","..kkkkkk..",".kwwwwwwk.",".kwpwwpwk.",
+"kkkkkkkkkk","kppppppppk","kpwpwpwpwk","kppppppppk","kkkkkkkkkk"],
+    { k:'#5a2d3c', w:'#fff7ee', p:'#ff8fb1', r:'#e63946', y:'#ffd23f' }),
+  heart: make([
+".kk...kk.","kppkkkppk","kpwpppppk","kpppppppk",".kpppppk.","..kpppk..","...kpk...","....k...."],
+    { k:'#7a1f3d', p:'#ff6b8f', w:'#ffd0dc' }),
+  rose: make([
+"..kkk..",".krrrk.","krrdrrk","krdrdrk",".krrrk.","...g...","..ggg..","...g...","...g..."],
+    { k:'#5a0f14', r:'#e63946', d:'#a4161a', g:'#4c8a3c' }),
+  balloon: make(BALLOON, { k:'#7a1f3d', r:'#ff8fb1', w:'#ffffff' }),
+  balloon2: make(BALLOON, { k:'#6b4a00', r:'#ffd23f', w:'#fff4b0' }),
+  ring: make([
+"....kwk....","...kdwdk...","....kdk....","..kyyyyyk..",".kyo...oyk.",
+"ky.......yk","ky.......yk","ky.......yk",".kyo...oyk.","..kyyyyyk..","...kkkkk..."],
+    { k:'#6b4a00', y:'#ffd23f', o:'#c28a00', d:'#bfefff', w:'#ffffff' })
+};
+function fit(g, spr, cx, cy, box) {
+  const sc = box / Math.max(spr.width, spr.height);
+  const w = spr.width * sc, h = spr.height * sc;
+  g.drawImage(spr, cx - w / 2, cy - h / 2, w, h);
+}
+
+/* ---------- Maze ---------- */
+const W = CW * 2 + 1, H = CH * 2 + 1;
+const rnd = n => Math.floor(Math.random() * n);
+const NB4 = [[1,0],[-1,0],[0,1],[0,-1]];
+
+function generate() {
+  const m = Array.from({ length: H }, () => Array(W).fill(1));
+  const seen = Array.from({ length: CH }, () => Array(CW).fill(false));
+  const stack = [[0, 0]];
+  seen[0][0] = true; m[1][1] = 0;
+  while (stack.length) {
+    const [cx, cy] = stack[stack.length - 1];
+    const nb = NB4.filter(([dx, dy]) => {
+      const nx = cx + dx, ny = cy + dy;
+      return nx >= 0 && ny >= 0 && nx < CW && ny < CH && !seen[ny][nx];
+    });
+    if (!nb.length) { stack.pop(); continue; }
+    const [dx, dy] = nb[rnd(nb.length)];
+    const nx = cx + dx, ny = cy + dy;
+    seen[ny][nx] = true;
+    m[cy * 2 + 1 + dy][cx * 2 + 1 + dx] = 0;
+    m[ny * 2 + 1][nx * 2 + 1] = 0;
+    stack.push([nx, ny]);
+  }
+  /* open a few extra walls so there are some loops (makes it easier) */
+  let removed = 0, tries = 0;
+  while (removed < 9 && tries < 500) {
+    tries++;
+    const x = 1 + rnd(W - 2), y = 1 + rnd(H - 2);
+    if (m[y][x] !== 1) continue;
+    if (x % 2 === 0 && y % 2 === 1 && m[y][x - 1] === 0 && m[y][x + 1] === 0) { m[y][x] = 0; removed++; }
+    else if (x % 2 === 1 && y % 2 === 0 && m[y - 1][x] === 0 && m[y + 1][x] === 0) { m[y][x] = 0; removed++; }
+  }
+  return m;
+}
+const map = generate();
+const GX = W - 2, GY = H - 2;
+
+function shuffle(a) { for (let i = a.length - 1; i > 0; i--) { const j = rnd(i + 1); [a[i], a[j]] = [a[j], a[i]]; } return a; }
+
+/* ---------- Decorations on the walls ---------- */
+const decor = [];
+(function placeDecor() {
+  const spots = [];
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+    if (map[y][x] !== 1) continue;
+    if (NB4.some(([dx, dy]) => map[y + dy] && map[y + dy][x + dx] === 0)) spots.push([x, y]);
+  }
+  shuffle(spots);
+  const types = ['cake', 'heart', 'rose', 'balloon', 'balloon2', 'rose', 'heart'];
+  for (const [x, y] of spots) {
+    if (decor.length >= 40) break;
+    if (Math.abs(x - 1) + Math.abs(y - 1) < 4) continue;
+    if (decor.every(d => Math.abs(d.x - x) + Math.abs(d.y - y) >= 4)) decor.push({ x, y, t: types[decor.length % types.length] });
+  }
+})();
+
+/* ---------- Hanging lights between two walls ---------- */
+const lights = [];
+(function placeLights() {
+  const runs = [];
+  for (let y = 1; y < H - 1; y++) {
+    let x = 1;
+    while (x < W - 1) {
+      if (map[y][x] === 0) {
+        let x2 = x;
+        while (map[y][x2 + 1] === 0) x2++;
+        if (x2 - x + 1 >= 3) runs.push({ x1: x, x2, y });
+        x = x2 + 1;
+      } else x++;
+    }
+  }
+  shuffle(runs);
+  for (const r of runs) {
+    if (lights.length >= 10) break;
+    if (lights.every(l => Math.abs(l.y - r.y) >= 3 || l.x2 < r.x1 || l.x1 > r.x2)) lights.push(r);
+  }
+})();
+const BULBS = ['#ff4d6d', '#ffd23f', '#7bdff2', '#b2f7b8', '#ffffff', '#ff8fb1'];
+
+/* ---------- Canvas and layout (whole maze is visible) ---------- */
+const VW = W, VH = H;
+const cv = document.getElementById('cv'), ctx = cv.getContext('2d');
+const touchDevice = matchMedia('(pointer:coarse)').matches;
+document.getElementById('hint').textContent = touchDevice
+  ? 'Use the arrows or swipe to move. Find the glowing ring.'
+  : 'Use arrow keys or WASD. Find the glowing ring.';
+let TILE = 16, DPR = 1, stat = null;
+
+function layout() {
+  const availH = innerHeight - (touchDevice ? 290 : 140);
+  TILE = Math.max(8, Math.floor(Math.min((innerWidth - 40) / VW, availH / VH, 30)));
+  DPR = window.devicePixelRatio || 1;
+  cv.style.width = VW * TILE + 'px';
+  cv.style.height = VH * TILE + 'px';
+  cv.width = Math.round(VW * TILE * DPR);
+  cv.height = Math.round(VH * TILE * DPR);
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  ctx.imageSmoothingEnabled = false;
+  buildStatic();
+}
+
+function buildStatic() {
+  stat = document.createElement('canvas');
+  stat.width = Math.round(W * TILE * DPR);
+  stat.height = Math.round(H * TILE * DPR);
+  const s = stat.getContext('2d');
+  s.setTransform(DPR, 0, 0, DPR, 0, 0);
+  s.imageSmoothingEnabled = false;
+  const ls = Math.max(2, Math.round(TILE / 4));
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+    const px = x * TILE, py = y * TILE;
+    if (map[y][x]) {
+      s.fillStyle = '#2f5a33'; s.fillRect(px, py, TILE, TILE);
+      const h = ((x * 73856093) ^ (y * 19349663)) >>> 0;
+      for (let k = 0; k < 3; k++) {
+        const lx = ((h >> (k * 5)) & 3) / 4 * TILE * 0.75;
+        const ly = ((h >> (k * 5 + 2)) & 3) / 4 * TILE * 0.75;
+        s.fillStyle = k % 2 ? '#244a2a' : '#3f7a43';
+        s.fillRect(px + lx, py + ly, ls, ls);
+      }
+      if (h % 11 === 0) {
+        s.fillStyle = '#ffffff'; s.fillRect(px + TILE * 0.3, py + TILE * 0.3, ls, ls);
+        s.fillStyle = '#ffb3c6'; s.fillRect(px + TILE * 0.3 + ls / 2, py + TILE * 0.3 + ls / 2, ls / 2, ls / 2);
+      }
+    } else {
+      s.fillStyle = (x + y) % 2 ? '#eadcbf' : '#f3e9d2';
+      s.fillRect(px, py, TILE, TILE);
+    }
+  }
+  decor.forEach(d => fit(s, SPR[d.t], (d.x + 0.5) * TILE, (d.y + 0.5) * TILE, TILE * 0.92));
+}
+
+/* ---------- Input ---------- */
+const DIRS = { up:[0,-1], down:[0,1], left:[-1,0], right:[1,0] };
+const KEYMAP = { arrowup:'up', w:'up', arrowdown:'down', s:'down', arrowleft:'left', a:'left', arrowright:'right', d:'right' };
+const keysDown = [];
+let padDir = null, touchDir = null;
+
+addEventListener('keydown', e => {
+  const k = e.key.toLowerCase();
+  if (!KEYMAP[k]) return;
+  e.preventDefault();
+  if (!keysDown.includes(k)) keysDown.push(k);
+});
+addEventListener('keyup', e => {
+  const i = keysDown.indexOf(e.key.toLowerCase());
+  if (i > -1) keysDown.splice(i, 1);
+});
+addEventListener('blur', () => { keysDown.length = 0; padDir = null; touchDir = null; });
+
+document.querySelectorAll('.pbtn').forEach(b => {
+  const d = DIRS[b.dataset.d];
+  b.addEventListener('pointerdown', e => { e.preventDefault(); padDir = d; tryMove(d[0], d[1]); });
+  ['pointerup', 'pointercancel', 'pointerleave'].forEach(ev =>
+    b.addEventListener(ev, () => { if (padDir === d) padDir = null; }));
+  b.addEventListener('contextmenu', e => e.preventDefault());
+});
+
+let ox = 0, oy = 0, dragging = false;
+cv.addEventListener('pointerdown', e => { dragging = true; ox = e.clientX; oy = e.clientY; cv.setPointerCapture(e.pointerId); });
+cv.addEventListener('pointermove', e => {
+  if (!dragging) return;
+  const dx = e.clientX - ox, dy = e.clientY - oy;
+  if (Math.hypot(dx, dy) < 18) return;
+  touchDir = Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? DIRS.right : DIRS.left) : (dy > 0 ? DIRS.down : DIRS.up);
+  ox = e.clientX; oy = e.clientY;
+  tryMove(touchDir[0], touchDir[1]);
+});
+['pointerup', 'pointercancel'].forEach(ev => cv.addEventListener(ev, () => { dragging = false; touchDir = null; }));
+
+function heldDir() {
+  if (padDir) return padDir;
+  if (touchDir) return touchDir;
+  if (keysDown.length) return DIRS[KEYMAP[keysDown[keysDown.length - 1]]];
+  return null;
+}
+
+/* ---------- Game ---------- */
+let px = 1, py = 1, tx = 1, ty = 1, won = false, t = 0, last = performance.now();
+let collectStart = -1;
+const parts = [];
+
+function tryMove(dx, dy) {
+  if (won || px !== tx || py !== ty) return;
+  if (map[ty + dy] && map[ty + dy][tx + dx] === 0) { tx += dx; ty += dy; }
+}
+
+function win() {
+  won = true;
+  collectStart = t;
+  for (let i = 0; i < 18; i++) {
+    parts.push({ a: i / 18 * Math.PI * 2 + Math.random() * 0.3, sp: 0.8 + Math.random() * 1.2, sz: 0.1 + Math.random() * 0.12, col: BULBS[i % BULBS.length] });
+  }
+  setTimeout(() => { if (NEXT_PAGE) location.href = NEXT_PAGE; else document.getElementById('win').style.display = 'flex'; }, 1300);
+}
+document.getElementById('next').addEventListener('click', () => {
+  if (NEXT_PAGE) location.href = NEXT_PAGE;
+  else document.getElementById('winmsg').textContent = 'The invitation page comes next.';
+});
+
+function drawLights() {
+  lights.forEach((r, li) => {
+    const ax = (r.x1 - 0.5) * TILE, bx = (r.x2 + 1.5) * TILE, ay = (r.y + 0.1) * TILE;
+    const sag = Math.min(TILE * 0.45, (bx - ax) * 0.1);
+    ctx.strokeStyle = '#3a2a1a'; ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    for (let i = 0; i <= 24; i++) {
+      const u = i / 24, x = ax + (bx - ax) * u, y = ay + 4 * sag * u * (1 - u);
+      if (i) ctx.lineTo(x, y); else ctx.moveTo(x, y);
+    }
+    ctx.stroke();
+    const n = Math.max(3, Math.round((bx - ax) / (TILE * 0.8)));
+    for (let i = 1; i < n; i++) {
+      const u = i / n, x = ax + (bx - ax) * u, y = ay + 4 * sag * u * (1 - u) + TILE * 0.06;
+      const tw = 0.6 + 0.4 * Math.sin(t * 3 + i * 1.3 + li);
+      ctx.fillStyle = BULBS[(i + li) % BULBS.length];
+      ctx.globalAlpha = 0.28 * tw;
+      ctx.beginPath(); ctx.arc(x, y, TILE * 0.22, 0, Math.PI * 2); ctx.fill();
+      ctx.globalAlpha = 0.4 + 0.6 * tw;
+      ctx.beginPath(); ctx.arc(x, y, TILE * 0.1, 0, Math.PI * 2); ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+  });
+}
+
+function drawRing() {
+  const collecting = collectStart >= 0;
+  const e = collecting ? (t - collectStart) / 1.0 : 0;
+  const gcx = (GX + 0.5) * TILE;
+  const tb = collecting ? collectStart : t;
+  const gcy0 = (GY + 0.5) * TILE + Math.sin(tb * 3) * TILE * 0.12;
+
+  if (!collecting) {
+    const a = 0.55 + 0.35 * Math.sin(t * 4);
+    const gr = ctx.createRadialGradient(gcx, gcy0, 0, gcx, gcy0, TILE * 1.7);
+    gr.addColorStop(0, 'rgba(255,224,102,' + a + ')');
+    gr.addColorStop(1, 'rgba(255,210,63,0)');
+    ctx.fillStyle = gr;
+    ctx.fillRect(gcx - TILE * 2, gcy0 - TILE * 2, TILE * 4, TILE * 4);
+    const p = (t * 0.9) % 1;
+    ctx.strokeStyle = 'rgba(255,230,120,' + ((1 - p) * 0.8) + ')';
+    ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.arc(gcx, gcy0, TILE * (0.4 + p * 1.6), 0, Math.PI * 2); ctx.stroke();
+    fit(ctx, SPR.ring, gcx, gcy0, TILE * 1.3);
+    for (let k = 0; k < 4; k++) {
+      const ang = t * 2 + k * Math.PI / 2, r = TILE * 0.9, sz = Math.max(2, TILE * 0.12);
+      ctx.globalAlpha = 0.5 + 0.5 * Math.sin(t * 6 + k * 1.7);
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(gcx + Math.cos(ang) * r - sz / 2, gcy0 + Math.sin(ang) * r - sz / 2, sz, sz);
+    }
+    ctx.globalAlpha = 1;
+    return;
+  }
+
+  if (e >= 1) return; /* ring is gone */
+
+  /* collect animation: the ring rises, grows, shrinks away, and bursts into sparkles */
+  const ease = 1 - Math.pow(1 - e, 3);
+  const gcy = gcy0 - ease * TILE * 1.4;
+  const k = e < 0.3 ? 1 + e / 0.3 * 0.5 : 1.5 * (1 - (e - 0.3) / 0.7);
+  const fade = 1 - e;
+
+  const gr = ctx.createRadialGradient(gcx, gcy, 0, gcx, gcy, TILE * 1.7);
+  gr.addColorStop(0, 'rgba(255,224,102,' + (0.9 * fade) + ')');
+  gr.addColorStop(1, 'rgba(255,210,63,0)');
+  ctx.fillStyle = gr;
+  ctx.fillRect(gcx - TILE * 2, gcy - TILE * 2, TILE * 4, TILE * 4);
+
+  ctx.strokeStyle = 'rgba(255,240,170,' + (fade * 0.9) + ')';
+  ctx.lineWidth = 3;
+  ctx.beginPath(); ctx.arc(gcx, gcy0, TILE * (0.5 + e * 2.5), 0, Math.PI * 2); ctx.stroke();
+
+  ctx.globalAlpha = Math.max(0, 1 - e * 0.4);
+  fit(ctx, SPR.ring, gcx, gcy, TILE * 1.3 * Math.max(k, 0.01));
+  ctx.globalAlpha = 1;
+
+  parts.forEach(p => {
+    const dist = p.sp * TILE * ease * 1.6;
+    const x = gcx + Math.cos(p.a) * dist, y = gcy0 + Math.sin(p.a) * dist - e * TILE * 0.3;
+    const sz = Math.max(2, TILE * p.sz * (1 - e * 0.5));
+    ctx.globalAlpha = fade;
+    ctx.fillStyle = p.col;
+    ctx.fillRect(x - sz / 2, y - sz / 2, sz, sz);
+  });
+  ctx.globalAlpha = 1;
+}
+
+function frame(now) {
+  const dt = Math.min(0.05, (now - last) / 1000);
+  last = now; t = now / 1000;
+
+  const sp = 8 * dt, ddx = tx - px, ddy = ty - py, d = Math.hypot(ddx, ddy);
+  if (d > 0) {
+    if (d <= sp) { px = tx; py = ty; } else { px += ddx / d * sp; py += ddy / d * sp; }
+  }
+  if (px === tx && py === ty && !won) {
+    if (tx === GX && ty === GY) win();
+    else { const h = heldDir(); if (h) tryMove(h[0], h[1]); }
+  }
+
+  const camX = Math.min(Math.max(px + 0.5 - VW / 2, 0), W - VW);
+  const camY = Math.min(Math.max(py + 0.5 - VH / 2, 0), H - VH);
+  const sx = Math.round(camX * TILE * DPR), sy = Math.round(camY * TILE * DPR);
+
+  ctx.clearRect(0, 0, VW * TILE, VH * TILE);
+  ctx.drawImage(stat, sx, sy, VW * TILE * DPR, VH * TILE * DPR, 0, 0, VW * TILE, VH * TILE);
+  ctx.save();
+  ctx.translate(-sx / DPR, -sy / DPR);
+
+  drawLights();
+  drawRing();
+
+  /* player (hops with joy when the ring is collected) */
+  const moving = px !== tx || py !== ty;
+  let bob = moving ? -Math.abs(Math.sin(t * 20)) * TILE * 0.06 : 0;
+  if (collectStart >= 0 && t - collectStart < 1) bob = -Math.abs(Math.sin((t - collectStart) * Math.PI * 2)) * TILE * 0.25;
+  fit(ctx, SPR[who], (px + 0.5) * TILE, (py + 0.5) * TILE + bob, TILE * 1.05);
+
+  ctx.restore();
+  requestAnimationFrame(frame);
+}
+
+layout();
+addEventListener('resize', layout);
+addEventListener('orientationchange', layout);
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>

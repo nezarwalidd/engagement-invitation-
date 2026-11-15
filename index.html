@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Choose Your Character</title>
+<link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg-dark:#121d12;
+  --bg-mid:#1a2a1a;
+  --bg-glow:#34472f;
+  --cream:#f1e6d0;
+  --leaf:#8aa57a;
+  --leaf-dark:#3f5a3a;
+  --leaf-deep:#1f3d24;
+}
+html,body{margin:0;min-height:100%}
+body{
+  background:radial-gradient(circle at 25% 20%, var(--bg-glow) 0%, var(--bg-mid) 55%, var(--bg-dark) 100%) fixed;
+  color:var(--cream);
+  font-family:"Press Start 2P",ui-monospace,Menlo,Consolas,monospace;
+  display:flex;flex-direction:column;align-items:center;
+  padding:36px 16px 48px;text-align:center;
+  box-sizing:border-box;min-height:100vh;
+}
+h1{
+  font-size:clamp(16px,4.5vw,26px);line-height:1.6;margin:8px 0 10px;
+  color:var(--cream);text-shadow:3px 3px 0 #000;
+}
+p.sub{font-size:clamp(9px,2.4vw,12px);line-height:1.8;margin:0 0 30px;color:var(--leaf)}
+.row{display:flex;gap:20px;flex-wrap:wrap;justify-content:center}
+.card{
+  background:var(--leaf-dark);border:4px solid var(--leaf);padding:18px 14px 14px;width:170px;
+  cursor:pointer;font:inherit;color:var(--cream);
+  box-shadow:6px 6px 0 #000;transition:transform .1s;
+}
+.card:active{transform:translate(3px,3px);box-shadow:3px 3px 0 #000}
+.card canvas{width:120px;height:120px;image-rendering:pixelated;display:block;margin:0 auto 14px}
+.card span{font-size:12px;display:block}
+.card.selected{border-color:var(--cream);background:#52734b}
+.card.selected canvas{animation:hop .6s steps(2) infinite}
+@keyframes hop{50%{transform:translateY(-8px)}}
+#go{
+  margin-top:34px;font:inherit;font-size:14px;padding:16px 24px;border:4px solid #000;
+  background:#2c3d2a;color:#7d8f77;cursor:not-allowed;box-shadow:5px 5px 0 #000;
+}
+#go.ready{background:var(--cream);color:var(--leaf-deep);cursor:pointer}
+#go.ready:active{transform:translate(3px,3px);box-shadow:2px 2px 0 #000}
+#msg{margin-top:22px;font-size:10px;line-height:1.8;min-height:20px;color:var(--leaf)}
+</style>
+</head>
+<body>
+<h1>CHOOSE YOUR<br>CHARACTER</h1>
+<p class="sub">Pick who will walk through the maze</p>
+
+<div class="row">
+  <button class="card" id="groom" type="button"><canvas width="12" height="16"></canvas><span>GROOM</span></button>
+  <button class="card" id="bride" type="button"><canvas width="12" height="16"></canvas><span>BRIDE</span></button>
+</div>
+
+<button id="go" type="button" disabled>START</button>
+<div id="msg"></div>
+
+<script>
+const PAL={
+  k:'#1a1a2e', s:'#f5c9a0', w:'#ffffff', g:'#2b3a67', r:'#e63946',
+  h:'#4a2c17', y:'#e8b04a', p:'#ff8fb1', l:'#dfe6ff'
+};
+const GROOM=[
+"...kkkkkk...",
+"..khhhhhhk..",
+"..khhhhhhk..",
+"..kssssssk..",
+"..kskssksk..",
+"..kssssssk..",
+"....kssk....",
+"..kkwrrwkk..",
+".kgggwwgggk.",
+".kgggwwgggk.",
+".sgggwwgggs.",
+".kgggwwgggk.",
+"..kggggggk..",
+"..kggkkggk..",
+"..kggkkggk..",
+"..kkkkkkkk.."
+];
+const BRIDE=[
+"...kkkkkk...",
+".kyyyyyyyyk.",
+".kyyyyyyyyk.",
+".kyssssssyk.",
+".kyskssksyk.",
+".kyssppssyk.",
+"..yykssk.yy.",
+"..ykwwwwkyy.",
+".skwwwwwwks.",
+"..kwwwwwwk..",
+".kwwlwwlwwk.",
+"kwwwwwwwwwwk",
+"kwwlwwwwlwwk",
+"kwwwwwwwwwwk",
+"kkkkkkkkkkkk",
+"...kk..kk..."
+];
+function draw(id,map){
+  const c=document.querySelector('#'+id+' canvas'),x=c.getContext('2d');
+  map.forEach((row,j)=>[...row].forEach((ch,i)=>{
+    if(ch==='.')return;
+    x.fillStyle=PAL[ch]||'#f0f';
+    x.fillRect(i,j,1,1);
+  }));
+}
+draw('groom',GROOM);draw('bride',BRIDE);
+
+let chosen=null;
+const go=document.getElementById('go'),msg=document.getElementById('msg');
+['groom','bride'].forEach(id=>{
+  document.getElementById(id).addEventListener('click',()=>{
+    chosen=id;
+    ['groom','bride'].forEach(o=>document.getElementById(o).classList.toggle('selected',o===id));
+    go.disabled=false;go.classList.add('ready');msg.textContent='';
+  });
+});
+go.addEventListener('click',()=>{
+  if(!chosen)return;
+  try{sessionStorage.setItem('character',chosen)}catch(e){}
+  window.location.href='maze.html?c='+chosen;
+});
+</script>
+</body>
+</html>
